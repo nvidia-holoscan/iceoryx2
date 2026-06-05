@@ -130,6 +130,44 @@ impl BackpressureHandler<'_> {
     }
 }
 
+/// Read-only view of a sample's `user_header` and payload memory, valid only for the duration of
+/// the [`SampleReleasedHandler`] callback.
+///
+/// Invoked on the publisher when the last reference to a loaned sample is released and the
+/// shared-memory bucket is about to be returned to the publisher pool (immediately before
+/// deallocation). Pointers must not be used after the handler returns.
+#[derive(Debug)]
+pub struct SampleReleasedInfo {
+    /// Start of the user header bytes in shared memory.
+    pub user_header_ptr: *const u8,
+    /// Length of the user header in bytes.
+    pub user_header_len: usize,
+    /// Start of the payload bytes in shared memory.
+    pub payload_ptr: *const u8,
+    /// Length of the payload in bytes (publish-subscribe slice length from the sample header when
+    /// the payload type is dynamic).
+    pub payload_len: usize,
+}
+
+/// Callback invoked when a publisher sample bucket is reclaimed.
+pub trait SampleReleasedFn: Fn(&SampleReleasedInfo) + Send {}
+
+impl<F: Fn(&SampleReleasedInfo) + Send> SampleReleasedFn for F {}
+
+tiny_fn! {
+    /// Handler invoked when a [`crate::port::publisher::Publisher`] sample is fully released and
+    /// the underlying shared-memory chunk is about to be returned to the pool.
+    pub struct SampleReleasedHandler = Fn(info: &SampleReleasedInfo);
+}
+
+unsafe impl Send for SampleReleasedHandler<'_> {}
+
+impl core::fmt::Debug for SampleReleasedHandler<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "SampleReleasedHandler")
+    }
+}
+
 /// Defines the action that shall be take when an degradation is detected. This can happen when
 /// data cannot be delivered, or when the system is corrupted and files are modified by
 /// non-iceoryx2 instances. Is used as return value of the [`DegradationHandler`] to define a

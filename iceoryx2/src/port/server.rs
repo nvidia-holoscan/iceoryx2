@@ -461,6 +461,7 @@ impl<
             max_number_of_segments,
             degradation_handler: server_factory.response_degradation_handler,
             backpressure_handler: server_factory.backpressure_handler,
+            sample_released_handler: None,
             service_state: service.clone(),
             tagger: CyclicTagger::new(),
             loan_counter: AtomicUsize::new(0),

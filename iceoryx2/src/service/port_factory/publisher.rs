@@ -57,7 +57,7 @@
 use crate::{
     port::{
         BackpressureFn, BackpressureHandler, DegradationAction, DegradationFn, DegradationHandler,
-        backpressure_strategy::BackpressureStrategy,
+        SampleReleasedFn, SampleReleasedHandler, backpressure_strategy::BackpressureStrategy,
         publisher::{Publisher, PublisherCreateError},
     },
     service,
@@ -114,6 +114,7 @@ pub struct PortFactoryPublisher<
     pub(crate) config: LocalPublisherConfig,
     pub(crate) degradation_handler: DegradationHandler<'static>,
     pub(crate) backpressure_handler: Option<BackpressureHandler<'static>>,
+    pub(crate) sample_released_handler: Option<SampleReleasedHandler<'static>>,
     pub(crate) preallocate_number_of_samples_override: PreallocatedSamplesOverride<'static>,
     pub(crate) factory: &'factory PortFactory<Service, Payload, UserHeader>,
 }
@@ -142,6 +143,8 @@ impl<
             factory: self.factory,
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
+            backpressure_handler: None,
+            sample_released_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
         }
     }
@@ -171,6 +174,8 @@ impl<
             },
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
+            backpressure_handler: None,
+            sample_released_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
             factory,
         }
@@ -229,6 +234,17 @@ impl<
     /// [`BackpressureStrategy`].
     pub fn set_backpressure_handler<F: BackpressureFn + 'static>(mut self, handler: F) -> Self {
         self.backpressure_handler = Some(BackpressureHandler::new(handler));
+
+        self
+    }
+
+    /// Sets a callback that is invoked when a sample's shared-memory bucket is fully released on
+    /// the publisher and is about to be returned to the pool.
+    ///
+    /// The [`crate::port::SampleReleasedInfo`] pointers are valid only for the duration of the
+    /// callback. Payload sizing follows publish-subscribe rules (including slice payloads).
+    pub fn set_sample_released_handler<F: SampleReleasedFn + 'static>(mut self, handler: F) -> Self {
+        self.sample_released_handler = Some(SampleReleasedHandler::new(handler));
 
         self
     }

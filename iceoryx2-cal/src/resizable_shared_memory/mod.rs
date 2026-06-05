@@ -258,4 +258,8 @@ pub trait ResizableSharedMemoryForPoolAllocator<Shm: SharedMemory<PoolAllocator>
 
     /// Returns the bucket size of the corresponding [`PoolAllocator`]
     fn bucket_size(&self, segment_id: SegmentId) -> usize;
+
+    /// Returns the base address of the chunk (start of the iceoryx message header) for an
+    /// allocated [`PointerOffset`], matching [`ShmPointer::data_ptr`].
+    fn bucket_chunk_header_ptr(&self, offset: PointerOffset) -> *const u8;
 }
