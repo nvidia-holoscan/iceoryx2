@@ -581,6 +581,7 @@ impl<
             enable_safe_overflow: static_config.enable_safe_overflow_for_requests,
             degradation_handler: client_factory.request_degradation_handler,
             backpressure_handler: client_factory.backpressure_handler,
+            sample_released_handler: None,
             number_of_chunks: number_of_requests,
             max_number_of_segments,
             service_state: service.clone(),

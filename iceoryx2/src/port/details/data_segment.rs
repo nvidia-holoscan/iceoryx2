@@ -200,6 +200,16 @@ impl<Service: service::Service> DataSegment<Service> {
         }
     }
 
+    /// Base pointer to the chunk (iceoryx internal header), same as [`ShmPointer::data_ptr`].
+    pub(crate) fn bucket_chunk_header_ptr(&self, offset: PointerOffset) -> *const u8 {
+        match &self.memory {
+            MemoryType::Static(memory) => {
+                (offset.offset() + memory.payload_start_address()) as *const u8
+            }
+            MemoryType::Dynamic(memory) => memory.bucket_chunk_header_ptr(offset),
+        }
+    }
+
     pub(crate) fn max_number_of_segments(data_segment_type: DataSegmentType) -> u8 {
         match data_segment_type {
             DataSegmentType::Static => 1,

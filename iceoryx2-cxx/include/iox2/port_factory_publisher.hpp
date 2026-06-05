@@ -25,9 +25,11 @@
 #include "iox2/marker.hpp"
 #include "iox2/port_name.hpp"
 #include "iox2/publisher.hpp"
+#include "iox2/sample_released_handler.hpp"
 #include "iox2/service_type.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace iox2 {
 /// Factory to create a new [`Publisher`] port/endpoint for
@@ -115,6 +117,13 @@ class PortFactoryPublisher {
     /// data
     auto set_backpressure_handler(BackpressureHandler* handler) && -> PortFactoryPublisher&&;
 
+    /// Sets a [`SampleReleasedHandler`] invoked when a loaned sample's shared-memory bucket is
+    /// fully released on the publisher and is about to be returned to the pool.
+    /// The handler is moved into the builder and owned by the created [`Publisher`].
+    /// If the [`Publisher`], including send/loan paths, is used from multiple threads, the handler must be
+    /// thread-safe.
+    auto set_sample_released_handler(SampleReleasedHandler handler) && -> PortFactoryPublisher&&;
+
     /// Creates a new [`Publisher`] or returns a [`PublisherCreateError`] on failure.
     auto create() && -> bb::Expected<Publisher<S, Payload, UserHeader>, PublisherCreateError>;
 
@@ -130,6 +139,7 @@ class PortFactoryPublisher {
     bb::Optional<OverridePreallocationCallback> m_override_preallocation_callback;
     bb::Optional<DegradationHandler* const> m_degradation_handler;
     bb::Optional<BackpressureHandler* const> m_backpressure_handler;
+    bb::Optional<SampleReleasedHandler> m_sample_released_handler;
 };
 
 template <ServiceType S, typename Payload, typename UserHeader>
@@ -183,6 +193,13 @@ inline auto PortFactoryPublisher<S, Payload, UserHeader>::set_backpressure_handl
 }
 
 template <ServiceType S, typename Payload, typename UserHeader>
+inline auto PortFactoryPublisher<S, Payload, UserHeader>::set_sample_released_handler(
+    SampleReleasedHandler handler) && -> PortFactoryPublisher&& {
+    m_sample_released_handler.emplace(std::move(handler));
+    return std::move(*this);
+}
+
+template <ServiceType S, typename Payload, typename UserHeader>
 inline auto PortFactoryPublisher<S, Payload, UserHeader>::create() && -> bb::Expected<Publisher<S, Payload, UserHeader>,
                                                                                       PublisherCreateError> {
     if (m_backpressure_strategy.has_value()) {
@@ -212,6 +229,16 @@ inline auto PortFactoryPublisher<S, Payload, UserHeader>::create() && -> bb::Exp
             &m_handle, detail::backpressure_handler_delegate, static_cast<void*>(m_backpressure_handler.value()));
     }
 
+    std::unique_ptr<SampleReleasedHandler> owned_sample_released_handler;
+    if (m_sample_released_handler.has_value()) {
+        owned_sample_released_handler =
+            std::make_unique<SampleReleasedHandler>(std::move(m_sample_released_handler.value()));
+        iox2_port_factory_publisher_builder_set_sample_released_handler(
+            &m_handle,
+            detail::sample_released_handler_delegate,
+            static_cast<void*>(owned_sample_released_handler.get()));
+    }
+
     if (m_override_preallocation_callback.has_value()) {
         // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) must be a raw pointer - crosses FFI boundary
         auto* callback = new OverridePreallocationCallback(m_override_preallocation_callback.value());
@@ -231,7 +258,7 @@ inline auto PortFactoryPublisher<S, Payload, UserHeader>::create() && -> bb::Exp
     auto result = iox2_port_factory_publisher_builder_create(m_handle, nullptr, &pub_handle);
 
     if (result == IOX2_OK) {
-        return Publisher<S, Payload, UserHeader>(pub_handle);
+        return Publisher<S, Payload, UserHeader>(pub_handle, std::move(owned_sample_released_handler));
     }
 
     return bb::err(bb::into<PublisherCreateError>(result));

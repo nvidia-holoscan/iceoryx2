@@ -574,6 +574,7 @@ impl<
                     max_number_of_segments,
                     degradation_handler: publisher_factory.degradation_handler,
                     backpressure_handler: publisher_factory.backpressure_handler,
+                    sample_released_handler: publisher_factory.sample_released_handler,
                     service_state: service.clone(),
                     tagger: CyclicTagger::new(),
                     loan_counter: AtomicUsize::new(0),

@@ -765,6 +765,17 @@ where
                         segment_id),
         }
     }
+
+    fn bucket_chunk_header_ptr(&self, offset: PointerOffset) -> *const u8 {
+        let segment_id = SlotMapKey::new(offset.segment_id().value() as usize);
+        let state = self.state_mut();
+        match state.shared_memory_map.get(segment_id) {
+            Some(entry) => (offset.offset() + entry.shm.payload_start_address()) as *const u8,
+            None => fatal_panic!(from self,
+                        "This should never happen! Unable to resolve chunk header pointer since the segment for {:?} does not exist.",
+                        offset),
+        }
+    }
 }
 
 impl<Allocator: ShmAllocator, Shm: SharedMemory<Allocator>> ResizableSharedMemory<Allocator, Shm>

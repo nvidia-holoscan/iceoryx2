@@ -17,8 +17,10 @@ use crate::api::{
     UnsafeCallbackContextSendWorkaround, UserHeaderFfi, backpressure_info_cast, c_size_t,
     degradation_info_cast, iox2_backpressure_handler, iox2_callback_context,
     iox2_degradation_handler, iox2_port_name_ptr, iox2_publisher_h, iox2_publisher_t,
-    iox2_service_type_e,
+    iox2_sample_released_handler, iox2_sample_released_info_t, iox2_service_type_e,
 };
+
+use iceoryx2::port::SampleReleasedInfo;
 
 use iceoryx2::port::publisher::PublisherCreateError;
 use iceoryx2::prelude::*;
@@ -162,10 +164,14 @@ impl PortFactoryPublisherBuilderUnion {
     }
 }
 
+const _: [(); 352] = [(); core::mem::size_of::<Option<PortFactoryPublisherBuilderUnion>>()];
+
+const _: () = assert!(core::mem::align_of::<Option<PortFactoryPublisherBuilderUnion>>() <= 16);
+
 #[repr(C)]
 #[repr(align(16))] // alignment of Option<PortFactoryPublisherBuilderUnion>
 pub struct iox2_port_factory_publisher_builder_storage_t {
-    internal: [u8; 288], // magic number obtained with size_of::<Option<PortFactoryPublisherBuilderUnion>>()
+    internal: [u8; 352], // guarded by the compile-time size assertion above
 }
 
 #[repr(C)]
@@ -452,6 +458,65 @@ pub unsafe extern "C" fn iox2_port_factory_publisher_builder_set_backpressure_ha
                     port_factory.set_backpressure_handler(move |info| {
                         let ctx = ctx;
                         handler(backpressure_info_cast(info), ctx.ctx).into()
+                    }),
+                ));
+            }
+        }
+    }
+}
+
+/// Sets a callback invoked when a publisher sample's shared-memory bucket is fully released and
+/// is about to be returned to the pool.
+///
+/// # Safety
+///
+/// * `port_factory_handle` must be valid
+/// * `ctx` must point to a [`iox2::SampleReleasedHandler`] that outlives the created publisher port.
+///   When using the iceoryx2-cxx API, the handler is heap-allocated and owned by [`iox2::Publisher`].
+/// * if the publisher is used from multiple threads, `ctx` must be thread-safe
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iox2_port_factory_publisher_builder_set_sample_released_handler(
+    port_factory_handle: iox2_port_factory_publisher_builder_h_ref,
+    handler: iox2_sample_released_handler,
+    ctx: iox2_callback_context,
+) {
+    port_factory_handle.assert_non_null();
+
+    let ctx = UnsafeCallbackContextSendWorkaround { ctx };
+
+    unsafe {
+        let port_factory_struct = &mut *port_factory_handle.as_type();
+        match port_factory_struct.service_type {
+            iox2_service_type_e::IPC => {
+                let port_factory = ManuallyDrop::take(&mut port_factory_struct.value.as_mut().ipc);
+
+                port_factory_struct.set(PortFactoryPublisherBuilderUnion::new_ipc(
+                    port_factory.set_sample_released_handler(move |info: &SampleReleasedInfo| {
+                        let ffi_info = iox2_sample_released_info_t {
+                            user_header_ptr: info.user_header_ptr,
+                            user_header_len: info.user_header_len,
+                            payload_ptr: info.payload_ptr,
+                            payload_len: info.payload_len,
+                        };
+                        let ctx = ctx;
+                        handler(&ffi_info, ctx.ctx);
+                    }),
+                ));
+            }
+            iox2_service_type_e::LOCAL => {
+                let port_factory =
+                    ManuallyDrop::take(&mut port_factory_struct.value.as_mut().local);
+
+                port_factory_struct.set(PortFactoryPublisherBuilderUnion::new_local(
+                    port_factory.set_sample_released_handler(move |info: &SampleReleasedInfo| {
+                        let ffi_info = iox2_sample_released_info_t {
+                            user_header_ptr: info.user_header_ptr,
+                            user_header_len: info.user_header_len,
+                            payload_ptr: info.payload_ptr,
+                            payload_len: info.payload_len,
+                        };
+                        let ctx = ctx;
+                        handler(&ffi_info, ctx.ctx);
                     }),
                 ));
             }

@@ -38,11 +38,13 @@ use iceoryx2_log::{error, fail, fatal_panic, warn};
 use crate::node::SharedNode;
 use crate::port::{
     BackpressureHandler, BackpressureInfo, DegradationAction, DegradationCause, DegradationHandler,
-    DegradationInfo, LoanError, SendError,
+    DegradationInfo, LoanError, SampleReleasedHandler, SampleReleasedInfo, SendError,
 };
 use crate::prelude::BackpressureStrategy;
 use crate::service::SharedServiceState;
 use crate::service::config_scheme::connection_config;
+use crate::service::header::payload_header::PayloadHeader;
+use crate::service::header::publish_subscribe::Header as PublishSubscribeHeader;
 use crate::service::resource::ServiceResource;
 use crate::service::static_config::message_type_details::{MessageTypeDetails, TypeVariant};
 use crate::{service, service::naming_scheme::connection_name};
@@ -143,6 +145,7 @@ pub(crate) struct Sender<Service: service::Service, Resource: ServiceResource> {
     pub(crate) max_number_of_segments: u8,
     pub(crate) degradation_handler: DegradationHandler<'static>,
     pub(crate) backpressure_handler: Option<BackpressureHandler<'static>>,
+    pub(crate) sample_released_handler: Option<SampleReleasedHandler<'static>>,
     pub(crate) service_state: SharedServiceState<Service, Resource>,
     pub(crate) tagger: CyclicTagger,
     pub(crate) loan_counter: AtomicUsize,
@@ -546,6 +549,31 @@ impl<Service: service::Service, Resource: ServiceResource> Sender<Service, Resou
 
     pub(crate) fn release_chunk(&self, offset: PointerOffset) {
         if self.untrack_chunk(offset) == 1 {
+            if let Some(ref handler) = self.sample_released_handler {
+                let header_ptr = self.data_segment.bucket_chunk_header_ptr(offset);
+                let user_header_ptr = self
+                    .message_type_details
+                    .user_header_ptr_from_header(header_ptr);
+                let payload_ptr = self
+                    .message_type_details
+                    .payload_ptr_from_header(header_ptr);
+                let user_header_len = self.message_type_details.user_header.size();
+                let header = unsafe { &*(header_ptr as *const PublishSubscribeHeader) };
+                let payload_len = match self.message_type_details.payload.variant() {
+                    TypeVariant::Dynamic => {
+                        header.number_of_elements() as usize
+                            * self.message_type_details.payload.size()
+                    }
+                    TypeVariant::FixedSize => self.message_type_details.payload.size(),
+                };
+                let info = SampleReleasedInfo {
+                    user_header_ptr,
+                    user_header_len,
+                    payload_ptr,
+                    payload_len,
+                };
+                handler.call(&info);
+            }
             unsafe {
                 self.data_segment.deallocate_bucket(offset);
             }

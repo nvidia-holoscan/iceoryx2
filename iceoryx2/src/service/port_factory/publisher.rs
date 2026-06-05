@@ -57,6 +57,7 @@
 use crate::{
     port::{
         BackpressureFn, BackpressureHandler, DegradationAction, DegradationFn, DegradationHandler,
+        SampleReleasedFn, SampleReleasedHandler,
         backpressure_strategy::BackpressureStrategy,
         port_name::PortName,
         publisher::{Publisher, PublisherCreateError},
@@ -116,6 +117,7 @@ pub struct PortFactoryPublisher<
     pub(crate) config: LocalPublisherConfig,
     pub(crate) degradation_handler: DegradationHandler<'static>,
     pub(crate) backpressure_handler: Option<BackpressureHandler<'static>>,
+    pub(crate) sample_released_handler: Option<SampleReleasedHandler<'static>>,
     pub(crate) preallocate_number_of_samples_override: PreallocatedSamplesOverride<'static>,
     pub(crate) factory: &'factory PortFactory<Service, Payload, UserHeader>,
 }
@@ -144,6 +146,7 @@ impl<
             factory: self.factory,
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
+            sample_released_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
         }
     }
@@ -174,6 +177,7 @@ impl<
             },
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
+            sample_released_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
             factory,
         }
@@ -236,9 +240,19 @@ impl<
         self
     }
 
-    /// Sets the [`PortName`] of the  [`Publisher`].
+    /// Sets the [`PortName`] of the [`Publisher`].
     pub fn name(mut self, name: &PortName) -> Self {
         self.config.port_name = *name;
+        self
+    }
+
+    /// Sets a callback invoked immediately before returning a fully released sample bucket.
+    /// The borrowed header and payload pointers remain valid only during the callback.
+    pub fn set_sample_released_handler<F: SampleReleasedFn + 'static>(
+        mut self,
+        handler: F,
+    ) -> Self {
+        self.sample_released_handler = Some(SampleReleasedHandler::new(handler));
         self
     }
 
