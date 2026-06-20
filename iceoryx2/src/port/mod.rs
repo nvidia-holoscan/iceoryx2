@@ -174,6 +174,47 @@ impl core::fmt::Debug for SampleReleasedHandler<'_> {
     }
 }
 
+/// Read-only view of a sample that was superseded by safe overflow for one receiver.
+///
+/// Invoked on the publisher when a sender with safe overflow enabled replaces a receiver's
+/// previously unread sample with a newer sample. Pointers must not be used after the handler
+/// returns.
+#[derive(Debug)]
+pub struct SampleReplacedInfo {
+    /// Unique service id involved in the replacement.
+    pub service_id: u128,
+    /// Unique publisher port id involved in the replacement.
+    pub sender_port_id: u128,
+    /// Unique subscriber port id whose unread sample was replaced.
+    pub receiver_port_id: u128,
+    /// Start of the replaced sample's user header bytes in shared memory.
+    pub user_header_ptr: *const u8,
+    /// Length of the replaced sample's user header in bytes.
+    pub user_header_len: usize,
+    /// Start of the replaced sample's payload bytes in shared memory.
+    pub payload_ptr: *const u8,
+    /// Length of the replaced sample's payload bytes.
+    pub payload_len: usize,
+}
+
+/// Callback invoked when safe overflow replaces a receiver's unread sample.
+pub trait SampleReplacedFn: Fn(&SampleReplacedInfo) + Send {}
+
+impl<F: Fn(&SampleReplacedInfo) + Send> SampleReplacedFn for F {}
+
+tiny_fn! {
+    /// Handler invoked when safe overflow replaces an unread sample for one receiver.
+    pub struct SampleReplacedHandler = Fn(info: &SampleReplacedInfo);
+}
+
+unsafe impl Send for SampleReplacedHandler<'_> {}
+
+impl core::fmt::Debug for SampleReplacedHandler<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "SampleReplacedHandler")
+    }
+}
+
 /// Defines the action that shall be take when an degradation is detected. This can happen when
 /// data cannot be delivered, or when the system is corrupted and files are modified by
 /// non-iceoryx2 instances. Is used as return value of the [`DegradationHandler`] to define a

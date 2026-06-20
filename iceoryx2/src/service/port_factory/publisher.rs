@@ -57,7 +57,7 @@
 use crate::{
     port::{
         BackpressureFn, BackpressureHandler, DegradationAction, DegradationFn, DegradationHandler,
-        SampleReleasedFn, SampleReleasedHandler,
+        SampleReleasedFn, SampleReleasedHandler, SampleReplacedFn, SampleReplacedHandler,
         backpressure_strategy::BackpressureStrategy,
         port_name::PortName,
         publisher::{Publisher, PublisherCreateError},
@@ -118,6 +118,7 @@ pub struct PortFactoryPublisher<
     pub(crate) degradation_handler: DegradationHandler<'static>,
     pub(crate) backpressure_handler: Option<BackpressureHandler<'static>>,
     pub(crate) sample_released_handler: Option<SampleReleasedHandler<'static>>,
+    pub(crate) sample_replaced_handler: Option<SampleReplacedHandler<'static>>,
     pub(crate) preallocate_number_of_samples_override: PreallocatedSamplesOverride<'static>,
     pub(crate) factory: &'factory PortFactory<Service, Payload, UserHeader>,
 }
@@ -147,6 +148,7 @@ impl<
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
             sample_released_handler: None,
+            sample_replaced_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
         }
     }
@@ -178,6 +180,7 @@ impl<
             degradation_handler: DegradationHandler::new_with(DegradationAction::Warn),
             backpressure_handler: None,
             sample_released_handler: None,
+            sample_replaced_handler: None,
             preallocate_number_of_samples_override: PreallocatedSamplesOverride::new(|v| v),
             factory,
         }
@@ -253,6 +256,20 @@ impl<
         handler: F,
     ) -> Self {
         self.sample_released_handler = Some(SampleReleasedHandler::new(handler));
+        self
+    }
+
+    /// Sets a callback that is invoked when safe overflow replaces a receiver's unread sample with
+    /// a newer sample.
+    ///
+    /// The [`crate::port::SampleReplacedInfo`] pointers are valid only for the duration of the
+    /// callback. The callback is only invoked for services created with safe overflow enabled.
+    pub fn set_sample_replaced_handler<F: SampleReplacedFn + 'static>(
+        mut self,
+        handler: F,
+    ) -> Self {
+        self.sample_replaced_handler = Some(SampleReplacedHandler::new(handler));
+
         self
     }
 

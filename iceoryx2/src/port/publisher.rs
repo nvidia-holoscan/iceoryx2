@@ -575,6 +575,7 @@ impl<
                     degradation_handler: publisher_factory.degradation_handler,
                     backpressure_handler: publisher_factory.backpressure_handler,
                     sample_released_handler: publisher_factory.sample_released_handler,
+                    sample_replaced_handler: publisher_factory.sample_replaced_handler,
                     service_state: service.clone(),
                     tagger: CyclicTagger::new(),
                     loan_counter: AtomicUsize::new(0),

@@ -13,8 +13,9 @@
 pub use crate::config::Config;
 pub use crate::node::{Node, NodeBuilder, NodeState, node_name::NodeName};
 pub use crate::port::{
-    EventActivation, SampleReleasedHandler, SampleReleasedInfo,
-    backpressure_strategy::BackpressureStrategy, event_id::EventId, port_name::PortName,
+    EventActivation, SampleReleasedHandler, SampleReleasedInfo, SampleReplacedHandler,
+    SampleReplacedInfo, backpressure_strategy::BackpressureStrategy, event_id::EventId,
+    port_name::PortName,
 };
 pub use crate::service::header::payload_header::PayloadHeader;
 pub use crate::service::marker::Flatbuffer;

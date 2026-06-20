@@ -15,12 +15,13 @@
 use crate::api::{
     AssertNonNullHandle, HandleToType, IOX2_OK, IntoCInt, PayloadFfi, PublisherUnion,
     UnsafeCallbackContextSendWorkaround, UserHeaderFfi, backpressure_info_cast, c_size_t,
-    degradation_info_cast, iox2_backpressure_handler, iox2_callback_context,
-    iox2_degradation_handler, iox2_port_name_ptr, iox2_publisher_h, iox2_publisher_t,
-    iox2_sample_released_handler, iox2_sample_released_info_t, iox2_service_type_e,
+    degradation_info_cast, iox2_backpressure_handler, iox2_buffer_16_align_4_t,
+    iox2_callback_context, iox2_degradation_handler, iox2_port_name_ptr, iox2_publisher_h,
+    iox2_publisher_t, iox2_sample_released_handler, iox2_sample_released_info_t,
+    iox2_sample_replaced_handler, iox2_sample_replaced_info_t, iox2_service_type_e,
 };
 
-use iceoryx2::port::SampleReleasedInfo;
+use iceoryx2::port::{SampleReleasedInfo, SampleReplacedInfo};
 
 use iceoryx2::port::publisher::PublisherCreateError;
 use iceoryx2::prelude::*;
@@ -30,7 +31,7 @@ use iceoryx2_ffi_macros::CStrRepr;
 use iceoryx2_ffi_macros::iceoryx2_ffi;
 
 use core::ffi::{c_char, c_int};
-use core::mem::ManuallyDrop;
+use core::mem::{ManuallyDrop, MaybeUninit};
 
 // BEGIN types definition
 
@@ -141,6 +142,14 @@ impl IntoCInt for PublisherCreateError {
     }
 }
 
+fn id_to_ffi_buffer(value: u128) -> iox2_buffer_16_align_4_t {
+    let mut buffer = MaybeUninit::<iox2_buffer_16_align_4_t>::uninit();
+    unsafe {
+        iox2_buffer_16_align_4_t::write(buffer.as_mut_ptr(), value.to_ne_bytes());
+        buffer.assume_init()
+    }
+}
+
 pub(super) union PortFactoryPublisherBuilderUnion {
     ipc: ManuallyDrop<PortFactoryPublisher<'static, crate::IpcService, PayloadFfi, UserHeaderFfi>>,
     local:
@@ -164,14 +173,14 @@ impl PortFactoryPublisherBuilderUnion {
     }
 }
 
-const _: [(); 352] = [(); core::mem::size_of::<Option<PortFactoryPublisherBuilderUnion>>()];
+const _: () = assert!(core::mem::size_of::<Option<PortFactoryPublisherBuilderUnion>>() <= 416);
 
 const _: () = assert!(core::mem::align_of::<Option<PortFactoryPublisherBuilderUnion>>() <= 16);
 
 #[repr(C)]
 #[repr(align(16))] // alignment of Option<PortFactoryPublisherBuilderUnion>
 pub struct iox2_port_factory_publisher_builder_storage_t {
-    internal: [u8; 352], // guarded by the compile-time size assertion above
+    internal: [u8; 416], // guarded by the compile-time size assertion above
 }
 
 #[repr(C)]
@@ -510,6 +519,72 @@ pub unsafe extern "C" fn iox2_port_factory_publisher_builder_set_sample_released
                 port_factory_struct.set(PortFactoryPublisherBuilderUnion::new_local(
                     port_factory.set_sample_released_handler(move |info: &SampleReleasedInfo| {
                         let ffi_info = iox2_sample_released_info_t {
+                            user_header_ptr: info.user_header_ptr,
+                            user_header_len: info.user_header_len,
+                            payload_ptr: info.payload_ptr,
+                            payload_len: info.payload_len,
+                        };
+                        let ctx = ctx;
+                        handler(&ffi_info, ctx.ctx);
+                    }),
+                ));
+            }
+        }
+    }
+}
+
+/// Sets a callback invoked when safe overflow replaces one receiver's unread sample with a newer
+/// sample.
+///
+/// # Safety
+///
+/// * `port_factory_handle` must be valid
+/// * `ctx` must point to a [`iox2::SampleReplacedHandler`] that outlives the created publisher
+///   port. When using the iceoryx2-cxx API, the handler is heap-allocated and owned by
+///   [`iox2::Publisher`].
+/// * if the publisher is used from multiple threads, `ctx` must be thread-safe
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn iox2_port_factory_publisher_builder_set_sample_replaced_handler(
+    port_factory_handle: iox2_port_factory_publisher_builder_h_ref,
+    handler: iox2_sample_replaced_handler,
+    ctx: iox2_callback_context,
+) {
+    port_factory_handle.assert_non_null();
+
+    let ctx = UnsafeCallbackContextSendWorkaround { ctx };
+
+    unsafe {
+        let port_factory_struct = &mut *port_factory_handle.as_type();
+        match port_factory_struct.service_type {
+            iox2_service_type_e::IPC => {
+                let port_factory = ManuallyDrop::take(&mut port_factory_struct.value.as_mut().ipc);
+
+                port_factory_struct.set(PortFactoryPublisherBuilderUnion::new_ipc(
+                    port_factory.set_sample_replaced_handler(move |info: &SampleReplacedInfo| {
+                        let ffi_info = iox2_sample_replaced_info_t {
+                            service_id: id_to_ffi_buffer(info.service_id),
+                            sender_port_id: id_to_ffi_buffer(info.sender_port_id),
+                            receiver_port_id: id_to_ffi_buffer(info.receiver_port_id),
+                            user_header_ptr: info.user_header_ptr,
+                            user_header_len: info.user_header_len,
+                            payload_ptr: info.payload_ptr,
+                            payload_len: info.payload_len,
+                        };
+                        let ctx = ctx;
+                        handler(&ffi_info, ctx.ctx);
+                    }),
+                ));
+            }
+            iox2_service_type_e::LOCAL => {
+                let port_factory =
+                    ManuallyDrop::take(&mut port_factory_struct.value.as_mut().local);
+
+                port_factory_struct.set(PortFactoryPublisherBuilderUnion::new_local(
+                    port_factory.set_sample_replaced_handler(move |info: &SampleReplacedInfo| {
+                        let ffi_info = iox2_sample_replaced_info_t {
+                            service_id: id_to_ffi_buffer(info.service_id),
+                            sender_port_id: id_to_ffi_buffer(info.sender_port_id),
+                            receiver_port_id: id_to_ffi_buffer(info.receiver_port_id),
                             user_header_ptr: info.user_header_ptr,
                             user_header_len: info.user_header_len,
                             payload_ptr: info.payload_ptr,
