@@ -90,6 +90,7 @@
 #include "iox2/sample_mut.hpp"
 #include "iox2/sample_mut_uninit.hpp"
 #include "iox2/sample_released_handler.hpp"
+#include "iox2/sample_replaced_handler.hpp"
 #include "iox2/server.hpp"
 #include "iox2/server_details.hpp"
 #include "iox2/server_error.hpp"

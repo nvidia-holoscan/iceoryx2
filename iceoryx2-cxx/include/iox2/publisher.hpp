@@ -23,6 +23,7 @@
 #include "iox2/sample_mut.hpp"
 #include "iox2/sample_mut_uninit.hpp"
 #include "iox2/sample_released_handler.hpp"
+#include "iox2/sample_replaced_handler.hpp"
 #include "iox2/service_type.hpp"
 #include "iox2/unique_port_id.hpp"
 
@@ -108,18 +109,22 @@ class Publisher {
     friend class PortFactoryPublisher;
 
     explicit Publisher(iox2_publisher_h handle,
-                       std::unique_ptr<SampleReleasedHandler> sample_released_handler = nullptr);
+                       std::unique_ptr<SampleReleasedHandler> sample_released_handler = nullptr,
+                       std::unique_ptr<SampleReplacedHandler> sample_replaced_handler = nullptr);
     void drop();
 
     iox2_publisher_h m_handle = nullptr;
     std::unique_ptr<SampleReleasedHandler> m_sample_released_handler_owned;
+    std::unique_ptr<SampleReplacedHandler> m_sample_replaced_handler_owned;
 };
 
 template <ServiceType S, typename Payload, typename UserHeader>
 inline Publisher<S, Payload, UserHeader>::Publisher(iox2_publisher_h handle,
-                                                    std::unique_ptr<SampleReleasedHandler> sample_released_handler)
+                                                    std::unique_ptr<SampleReleasedHandler> sample_released_handler,
+                                                    std::unique_ptr<SampleReplacedHandler> sample_replaced_handler)
     : m_handle { handle }
-    , m_sample_released_handler_owned(std::move(sample_released_handler)) {
+    , m_sample_released_handler_owned(std::move(sample_released_handler))
+    , m_sample_replaced_handler_owned(std::move(sample_replaced_handler)) {
 }
 
 template <ServiceType S, typename Payload, typename UserHeader>
@@ -141,6 +146,7 @@ inline auto Publisher<S, Payload, UserHeader>::operator=(Publisher&& rhs) noexce
         drop();
         m_handle = rhs.m_handle;
         m_sample_released_handler_owned = std::move(rhs.m_sample_released_handler_owned);
+        m_sample_replaced_handler_owned = std::move(rhs.m_sample_replaced_handler_owned);
         rhs.m_handle = nullptr;
     }
 
