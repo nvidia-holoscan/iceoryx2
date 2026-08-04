@@ -749,58 +749,65 @@ pub mod details {
             if !mgmt.enable_safe_overflow
                 && mgmt.channels[channel_id.value()].submission_queue.is_full()
             {
-                let mut is_connected = false;
-                let mut has_valid_channel_state = false;
+                let mut is_connected = mgmt.is_connected();
+                let mut has_valid_channel_state = mgmt.channels[channel_id.value()]
+                    .state
+                    .load(Ordering::Relaxed)
+                    != CHANNEL_STATE_CLOSED.0;
                 let mut do_fail = false;
                 let mut retry_until_delivered = false;
                 let mut retry_counter = 0;
-                let start = Time::now().unwrap();
 
                 const WAIT_CONTINUE: bool = true;
                 const WAIT_ABORT: bool = false;
 
-                if let Err(e) = AdaptiveWaitBuilder::new().create().unwrap().wait_while(|| {
-                    is_connected = mgmt.is_connected();
-                    has_valid_channel_state = mgmt.channels[channel_id.value()]
-                        .state
-                        .load(Ordering::Relaxed)
-                        != CHANNEL_STATE_CLOSED.0;
-                    if is_connected
-                        && has_valid_channel_state
-                        && mgmt.channels[channel_id.value()].submission_queue.is_full()
-                    {
-                        if retry_until_delivered {
-                            WAIT_CONTINUE
-                        } else {
-                            let wait_action = match backpressure_to_receiver_handler(
-                                retry_counter,
-                                start.elapsed().unwrap_or(Duration::MAX),
-                            ) {
-                                BackpressureToReceiverAction::FollowBackpressureyStrategy => {
-                                    match backpressure_action_for_strategy {
-                                        BackpressureToReceiverAction::Retry => {
-                                            retry_until_delivered = true;
-                                            WAIT_CONTINUE
+                // A disconnected receiver can still accept data until its buffer is full. Once
+                // pressure is observed, construct the timed waiter only for a live, open channel.
+                if is_connected && has_valid_channel_state {
+                    let start = Time::now().unwrap();
+                    if let Err(e) = AdaptiveWaitBuilder::new().create().unwrap().wait_while(|| {
+                        is_connected = mgmt.is_connected();
+                        has_valid_channel_state = mgmt.channels[channel_id.value()]
+                            .state
+                            .load(Ordering::Relaxed)
+                            != CHANNEL_STATE_CLOSED.0;
+                        if is_connected
+                            && has_valid_channel_state
+                            && mgmt.channels[channel_id.value()].submission_queue.is_full()
+                        {
+                            if retry_until_delivered {
+                                WAIT_CONTINUE
+                            } else {
+                                let wait_action = match backpressure_to_receiver_handler(
+                                    retry_counter,
+                                    start.elapsed().unwrap_or(Duration::MAX),
+                                ) {
+                                    BackpressureToReceiverAction::FollowBackpressureyStrategy => {
+                                        match backpressure_action_for_strategy {
+                                            BackpressureToReceiverAction::Retry => {
+                                                retry_until_delivered = true;
+                                                WAIT_CONTINUE
+                                            }
+                                            _ => WAIT_ABORT,
                                         }
-                                        _ => WAIT_ABORT,
                                     }
-                                }
-                                BackpressureToReceiverAction::Retry => WAIT_CONTINUE,
-                                BackpressureToReceiverAction::DiscardPointerOffset => WAIT_ABORT,
-                                BackpressureToReceiverAction::DiscardPointerOffsetAndFail => {
-                                    do_fail = true;
-                                    WAIT_ABORT
-                                }
-                            };
-                            retry_counter += 1;
-                            wait_action
+                                    BackpressureToReceiverAction::Retry => WAIT_CONTINUE,
+                                    BackpressureToReceiverAction::DiscardPointerOffset => WAIT_ABORT,
+                                    BackpressureToReceiverAction::DiscardPointerOffsetAndFail => {
+                                        do_fail = true;
+                                        WAIT_ABORT
+                                    }
+                                };
+                                retry_counter += 1;
+                                wait_action
+                            }
+                        } else {
+                            WAIT_ABORT
                         }
-                    } else {
-                        WAIT_ABORT
+                    }) {
+                        fail!(from self, with ZeroCopySendError::InternalError,
+                            "{msg} {ptr:?} via channel {channel_id:?} since the adaptive wait failed. [{e:?}]");
                     }
-                }) {
-                    fail!(from self, with ZeroCopySendError::InternalError,
-                        "{msg} {ptr:?} via channel {channel_id:?} since the adaptive wait failed. [{e:?}]");
                 }
 
                 if !is_connected {
