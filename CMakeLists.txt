@@ -200,6 +200,10 @@ else()
         USES_TERMINAL
     )
 
+    set_property(TARGET iceoryx2-ffi-c-build-step APPEND PROPERTY
+        ADDITIONAL_CLEAN_FILES "${RUST_TARGET_DIR}"
+    )
+
     add_subdirectory(iceoryx2-c)
 
     add_dependencies(includes-only iceoryx2-ffi-c-build-step)
