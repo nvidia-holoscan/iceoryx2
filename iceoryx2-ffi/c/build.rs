@@ -28,6 +28,10 @@ fn main() {
 
     let crate_dir = env::var("CARGO_MANIFEST_DIR").expect("Cargo manifest dir");
 
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-arg-cdylib=-Wl,-soname,libiceoryx2_ffi_c.so");
+    }
+
     cbindgen::generate(crate_dir)
         .expect("Unable to generate c bindings")
         .write_to_file(header_path);
