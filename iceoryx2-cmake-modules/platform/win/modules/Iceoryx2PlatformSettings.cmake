@@ -25,13 +25,13 @@ endif()
 set(ICEORYX2_C_WARNINGS CACHE INTERNAL "")
 
 if(CMAKE_C_COMPILER_ID MATCHES MSVC)
-    set(ICEORYX2_C_WARNINGS     "${ICEORYX2_C_WARNINGS} /W0" CACHE INTERNAL "") # TODO same as iceoryx classic; check if we can increase the warning level
+    set(ICEORYX2_C_WARNINGS     ${ICEORYX2_C_WARNINGS} /W0 CACHE INTERNAL "") # TODO same as iceoryx classic; check if we can increase the warning level
 endif()
 set(ICEORYX2_CXX_WARNINGS       ${ICEORYX2_C_WARNINGS} CACHE INTERNAL "")
 
 if(WARNING_AS_ERROR)
     if(CMAKE_C_COMPILER_ID MATCHES MSVC)
-        set(ICEORYX2_C_WARNINGS "${ICEORYX2_C_WARNINGS} /W0" CACHE INTERNAL "") # TODO same as iceoryx classic; set to /WX if possible
+        set(ICEORYX2_C_WARNINGS ${ICEORYX2_C_WARNINGS} /W0 CACHE INTERNAL "") # TODO same as iceoryx classic; set to /WX if possible
     endif()
-    set(ICEORYX2_CXX_WARNINGS   "${ICEORYX_CXX_WARNINGS} /W0" CACHE INTERNAL "") # TODO same as iceoryx classic; set to /WX if possible
+    set(ICEORYX2_CXX_WARNINGS   ${ICEORYX2_CXX_WARNINGS} /W0 CACHE INTERNAL "") # TODO same as iceoryx classic; set to /WX if possible
 endif()
