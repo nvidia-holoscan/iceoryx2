@@ -125,6 +125,11 @@ set_target_properties(static-lib-cxx
     OUTPUT_NAME "iceoryx2_cxx"
 )
 
+if(WIN32)
+    # The shared library's import library also uses the .lib extension.
+    set_target_properties(static-lib-cxx PROPERTIES OUTPUT_NAME "iceoryx2_cxx_static")
+endif()
+
 target_link_libraries(static-lib-cxx
     PUBLIC
     iceoryx2-bb-cxx::iceoryx2-bb-cxx
