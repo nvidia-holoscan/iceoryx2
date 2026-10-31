@@ -117,3 +117,5 @@ set_target_properties(iceoryx2-bb-cxx-tests PROPERTIES
 )
 
 add_test(NAME "iceoryx2 C++ BB Container Tests" COMMAND iceoryx2-bb-cxx-tests)
+
+add_subdirectory(error_forwarding)
