@@ -87,12 +87,6 @@ pub unsafe fn scandir(path: *const c_char, namelist: *mut *mut *mut dirent) -> i
         }
 
         loop {
-            let (file_found, _) =
-                win32call! {FindNextFileA(handle, &mut data), ignore ERROR_NO_MORE_FILES};
-            if file_found == FALSE {
-                break;
-            }
-
             let entry_ptr: *mut dirent =
                 posix::malloc(core::mem::size_of::<dirent>()) as *mut dirent;
             let entry = &mut *entry_ptr;
@@ -101,6 +95,12 @@ pub unsafe fn scandir(path: *const c_char, namelist: *mut *mut *mut dirent) -> i
 
             temp_namelist.push(entry_ptr);
             number_of_files += 1;
+
+            let (file_found, _) =
+                win32call! {FindNextFileA(handle, &mut data), ignore ERROR_NO_MORE_FILES};
+            if file_found == FALSE {
+                break;
+            }
         }
 
         *namelist = posix::malloc(core::mem::size_of::<*mut dirent>() * number_of_files)
@@ -149,4 +149,64 @@ pub unsafe fn dirfd(dirp: *mut DIR) -> int {
 
 pub fn dirent_size() -> usize {
     core::mem::size_of::<crate::posix::types::dirent>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::{collections::BTreeSet, ffi::CString};
+    use core::ffi::CStr;
+
+    #[test]
+    fn scandir_returns_all_entries_regardless_of_native_order() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "iox2-pal-scandir-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        for name in ["file_a", "file_b"] {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path.join(name))
+                .unwrap();
+        }
+        std::fs::create_dir(path.join("directory")).unwrap();
+        let c_path = CString::new(path.to_str().unwrap()).unwrap();
+        let mut names = core::ptr::null_mut();
+        let count = unsafe { scandir(c_path.as_ptr().cast(), &mut names) };
+        assert!(count >= 0);
+        let mut actual = BTreeSet::new();
+        for i in 0..count as usize {
+            unsafe {
+                let entry = *names.add(i);
+                actual.insert(
+                    CStr::from_ptr((*entry).d_name.as_ptr().cast())
+                        .to_str()
+                        .unwrap()
+                        .to_owned(),
+                );
+                posix::free(entry.cast());
+            }
+        }
+        unsafe { posix::free(names.cast()) };
+        assert_eq!(actual.len(), count as usize);
+        // This private directory includes both native dot entries. No entry order is assumed.
+        assert_eq!(
+            actual,
+            [".", "..", "file_a", "file_b", "directory"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+
+        std::fs::remove_file(path.join("file_a")).unwrap();
+        std::fs::remove_file(path.join("file_b")).unwrap();
+        std::fs::remove_dir(path.join("directory")).unwrap();
+        std::fs::remove_dir(path).unwrap();
+    }
 }

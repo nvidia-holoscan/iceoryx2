@@ -147,11 +147,6 @@ set_target_properties(static-lib-cxx
     OUTPUT_NAME "iceoryx2_cxx"
 )
 
-if(WIN32)
-    # The shared library's import library also uses the .lib extension.
-    set_target_properties(static-lib-cxx PROPERTIES OUTPUT_NAME "iceoryx2_cxx_static")
-endif()
-
 target_link_libraries(static-lib-cxx
     PUBLIC
     iceoryx2-bb-cxx::iceoryx2-bb-cxx
@@ -163,27 +158,28 @@ if(${IOX2_FEATURE_FLATBUFFERS})
   target_link_libraries(static-lib-cxx PUBLIC flatbuffers::flatbuffers)
 endif()
 
-# shared lib
+# Windows uses the static C++ binding.
+if(NOT WIN32)
+    add_library(shared-lib-cxx SHARED $<TARGET_OBJECTS:iceoryx2-cxx-object-lib>)
+    add_library(iceoryx2-cxx::shared-lib-cxx ALIAS shared-lib-cxx)
 
-add_library(shared-lib-cxx SHARED $<TARGET_OBJECTS:iceoryx2-cxx-object-lib>)
-add_library(iceoryx2-cxx::shared-lib-cxx ALIAS shared-lib-cxx)
+    target_compile_features(shared-lib-cxx PUBLIC ${ICEORYX2_CXX_STD})
+    set_target_properties(shared-lib-cxx
+        PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        OUTPUT_NAME "iceoryx2_cxx"
+    )
 
-target_compile_features(shared-lib-cxx PUBLIC ${ICEORYX2_CXX_STD})
-set_target_properties(shared-lib-cxx
-    PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    OUTPUT_NAME "iceoryx2_cxx"
-)
+    target_link_libraries(shared-lib-cxx
+        PUBLIC
+        iceoryx2-bb-cxx::iceoryx2-bb-cxx
+        iceoryx2-c::shared-lib
+        iceoryx2-cxx::includes-only-cxx
+    )
 
-target_link_libraries(shared-lib-cxx
-    PUBLIC
-    iceoryx2-bb-cxx::iceoryx2-bb-cxx
-    iceoryx2-c::shared-lib
-    iceoryx2-cxx::includes-only-cxx
-)
-
-if(${IOX2_FEATURE_FLATBUFFERS})
-  target_link_libraries(shared-lib-cxx PUBLIC flatbuffers::flatbuffers)
+    if(${IOX2_FEATURE_FLATBUFFERS})
+      target_link_libraries(shared-lib-cxx PUBLIC flatbuffers::flatbuffers)
+    endif()
 endif()
 
 # include install setup

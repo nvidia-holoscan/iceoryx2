@@ -55,9 +55,12 @@ configure_package_config_file(
 ########## export library ##########
 #
 
-# target directories
+set(cxx_install_targets includes-only-cxx static-lib-cxx)
+if(TARGET shared-lib-cxx)
+    list(APPEND cxx_install_targets shared-lib-cxx)
+endif()
 install(
-    TARGETS includes-only-cxx static-lib-cxx shared-lib-cxx
+    TARGETS ${cxx_install_targets}
     EXPORT ${TARGETS_EXPORT_NAME}
     RUNTIME DESTINATION ${DESTINATION_BINDIR} COMPONENT bin
     LIBRARY DESTINATION ${DESTINATION_LIBDIR} COMPONENT iceoryx2-lib
