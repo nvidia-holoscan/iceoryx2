@@ -29,6 +29,13 @@ namespace er {
 // This is lightweight and only exists to hide some complexity that would otherwise be part of the
 // macro API.
 
+#if defined(_MSC_VER)
+// The default panic is noreturn, but a custom panic may return and needs the fallback abort.
+// MSVC code-generation warnings must be controlled before the function definition.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#endif
+
 /// @brief Forwards that a panic state was encountered and does not return.
 /// @param location the location of the panic invocation
 /// @param msg the message to be forwarded
@@ -38,6 +45,10 @@ template <typename Message>
     panic(location, std::forward<Message>(msg));
     abort();
 }
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace detail {
 // workaround for gcc 8 bug
@@ -49,6 +60,13 @@ template <typename T1, typename T2, typename Message>
     }
 }
 } // namespace detail
+
+#if defined(_MSC_VER)
+// The default panic is noreturn, but a custom panic may return and needs the fallback abort.
+// MSVC code-generation warnings must be controlled before the function definition.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#endif
 
 /// @brief Forwards a fatal error and does not return.
 /// @param error the error
@@ -68,6 +86,10 @@ template <typename Error, typename Kind>
     abort();
 }
 
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
 /// @brief Forwards a non-fatal error.
 /// @param error the error
 /// @param kind the kind of error (category)
@@ -83,6 +105,13 @@ inline void forwardNonFatalError(Error&& error,
 
     report(location, std::forward<Kind>(kind), std::forward<Error>(error), stringifiedCondition);
 }
+
+#if defined(_MSC_VER)
+// The default panic is noreturn, but a custom panic may return and needs the fallback abort.
+// MSVC code-generation warnings must be controlled before the function definition.
+#pragma warning(push)
+#pragma warning(disable : 4702)
+#endif
 
 /// @brief Forwards a fatal error and a message and does not return.
 /// @param error the error
@@ -108,6 +137,10 @@ template <typename Error, typename Kind, typename Message>
     panic(location);
     abort();
 }
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 } // namespace er
 } // namespace legacy
