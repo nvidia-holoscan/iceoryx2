@@ -24,7 +24,7 @@ use iceoryx2_pal_concurrency_sync::atomic::AtomicU64;
 use iceoryx2_pal_concurrency_sync::cell::UnsafeCell;
 use iceoryx2_pal_concurrency_sync::strategy::mutex::Mutex;
 use iceoryx2_pal_configuration::PATH_SEPARATOR;
-use windows_sys::Win32::Foundation::ERROR_FILE_EXISTS;
+use windows_sys::Win32::Foundation::{ERROR_FILE_EXISTS, ERROR_NO_MORE_FILES};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DIRECTORY, FindClose, FindFirstFileA, FindNextFileA, WIN32_FIND_DATAA,
 };
@@ -158,17 +158,25 @@ unsafe fn trim_ascii(value: &[u8]) -> &[u8] {
 }
 
 pub unsafe fn shm_list() -> Vec<[i8; 256]> {
+    unsafe { shm_list_in_directory(SHM_STATE_DIRECTORY) }
+}
+
+unsafe fn shm_list_in_directory(directory: &[u8]) -> Vec<[i8; 256]> {
     let mut result = vec![];
-    let mut search_path = SHM_STATE_DIRECTORY.to_vec();
+    let previous_errno = Errno::get();
+    let mut search_path = directory.to_vec();
     search_path.push(0);
     unsafe {
         let search_path = to_dir_search_string(search_path.as_ptr().cast());
 
         //SHM_STATE_SUFFIX
         let mut data = WIN32_FIND_DATAA::new_zeroed();
-        let (handle, _) = win32call! { FindFirstFileA(search_path.as_ptr().cast(), &mut data), ignore ERROR_FILE_NOT_FOUND };
+        let (handle, error) = win32call! { FindFirstFileA(search_path.as_ptr().cast(), &mut data), ignore ERROR_FILE_NOT_FOUND };
 
         if handle == INVALID_HANDLE_VALUE {
+            if error == ERROR_FILE_NOT_FOUND {
+                Errno::set(previous_errno);
+            }
             return result;
         }
 
@@ -188,8 +196,12 @@ pub unsafe fn shm_list() -> Vec<[i8; 256]> {
                 }
             }
 
-            let (file_found, _) = win32call! { FindNextFileA(handle, &mut data) };
+            let (file_found, error) =
+                win32call! { FindNextFileA(handle, &mut data), ignore ERROR_NO_MORE_FILES };
             if file_found == FALSE {
+                if error == ERROR_NO_MORE_FILES {
+                    Errno::set(previous_errno);
+                }
                 break;
             }
         }
@@ -555,5 +567,83 @@ pub unsafe fn mprotect(addr: *mut void, len: size_t, prot: int) -> int {
         0
     } else {
         -1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::collections::BTreeSet;
+    use std::{fs, path::PathBuf};
+
+    fn new_directory() -> PathBuf {
+        static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "iox2-pal-shm-list-{}-{timestamp}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn empty_shm_listing_preserves_errno() {
+        let path = new_directory();
+        Errno::set(Errno::EACCES);
+        let result = unsafe { shm_list_in_directory(path.to_str().unwrap().as_bytes()) };
+        assert!(result.is_empty());
+        assert_eq!(Errno::get(), Errno::EACCES);
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn shm_listing_returns_complete_matching_names_and_preserves_errno() {
+        for count in [1, 3] {
+            let path = new_directory();
+            let expected: BTreeSet<_> = (0..count).map(|i| format!("state_{i}")).collect();
+            for name in &expected {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(path.join(format!("{name}.shm_state")))
+                    .unwrap();
+            }
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path.join("irrelevant.file"))
+                .unwrap();
+            fs::create_dir(path.join("directory.shm_state")).unwrap();
+
+            Errno::set(Errno::EACCES);
+            let result = unsafe { shm_list_in_directory(path.to_str().unwrap().as_bytes()) };
+            assert_eq!(Errno::get(), Errno::EACCES);
+            assert_eq!(result.len(), count);
+            let actual: BTreeSet<_> = result
+                .iter()
+                .map(|name| {
+                    String::from_utf8(
+                        name.iter()
+                            .take_while(|value| **value != 0)
+                            .map(|value| *value as u8)
+                            .collect(),
+                    )
+                    .unwrap()
+                })
+                .collect();
+            assert_eq!(actual, expected);
+
+            for name in &expected {
+                fs::remove_file(path.join(format!("{name}.shm_state"))).unwrap();
+            }
+            fs::remove_file(path.join("irrelevant.file")).unwrap();
+            fs::remove_dir(path.join("directory.shm_state")).unwrap();
+            fs::remove_dir(path).unwrap();
+        }
     }
 }
