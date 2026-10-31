@@ -33,6 +33,10 @@ use windows_sys::Win32::{
 
 use crate::posix::Errno;
 
+pub(crate) fn format_error_message(error: WIN32_ERROR) -> std::io::Error {
+    std::io::Error::from_raw_os_error(error as i32)
+}
+
 pub unsafe fn system_error_code_to_errno(value: WIN32_ERROR) {
     match value {
         ERROR_SUCCESS => Errno::set(Errno::ESUCCES),
@@ -112,7 +116,7 @@ macro_rules! win32call {
                 match last_error {
                     $($error => ()),*,
                     _ => {
-                       let os_error = std::io::Error::from_raw_os_error(last_error as i32);
+                       let os_error = $crate::os::posix::win32_call::format_error_message(last_error as _);
                        std::eprintln!(
                             "< Win32 API error > {}:{} {} \n [ {} ] {}",
                             std::file!(), std::line!(), std::stringify!($call), last_error,
@@ -143,7 +147,7 @@ macro_rules! win32call {
                 match last_error {
                     $($error => ()),*,
                     _ => {
-                        let os_error = std::io::Error::from_raw_os_error(last_error as i32);
+                        let os_error = $crate::os::posix::win32_call::format_error_message(last_error as _);
                         std::eprintln!(
                             "< Win32 WinSock2 API error > {}:{} {} \n [ {} ] {}",
                             std::file!(), std::line!(), std::stringify!($call), last_error,
@@ -164,4 +168,26 @@ macro_rules! win32call {
             win32call!(winsock $call, ignore NO_ERROR)
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formatted_system_error_has_no_nul_padding() {
+        let message = format_error_message(ERROR_ACCESS_DENIED).to_string();
+        assert!(!message.is_empty());
+        assert!(!message.contains('\0'));
+        assert!(message.len() < 1024);
+    }
+
+    #[test]
+    fn unavailable_system_error_has_readable_fallback() {
+        let error = format_error_message(WIN32_ERROR::MAX);
+        assert_eq!(error.raw_os_error(), Some(-1));
+        let message = error.to_string();
+        assert!(!message.is_empty());
+        assert!(!message.contains('\0'));
+    }
 }
