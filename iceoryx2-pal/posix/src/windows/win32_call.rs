@@ -28,9 +28,33 @@ use windows_sys::Win32::{
         WSAENOPROTOOPT, WSAENOTSOCK, WSAEPROTONOSUPPORT, WSAEPROTOTYPE, WSAETIMEDOUT,
         WSAEWOULDBLOCK,
     },
+    System::Diagnostics::Debug::{
+        FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageA,
+    },
 };
 
 use crate::posix::Errno;
+
+pub(crate) fn format_error_message(error: WIN32_ERROR, buffer: &mut [u8]) -> &str {
+    let written = unsafe {
+        FormatMessageA(
+            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            core::ptr::null(),
+            error,
+            0,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+            core::ptr::null(),
+        )
+    } as usize;
+
+    if written == 0 {
+        return "Windows error message is unavailable";
+    }
+
+    // FormatMessageA returns the message length without its terminating NUL.
+    core::str::from_utf8(&buffer[..written]).unwrap_or("non UTF-8 error messages are not supported")
+}
 
 pub unsafe fn system_error_code_to_errno(value: WIN32_ERROR) {
     match value {
@@ -111,20 +135,10 @@ macro_rules! win32call {
                     $($error => ()),*,
                     _ => {
                         let mut buffer = [0u8; 1024];
-                        windows_sys::Win32::System::Diagnostics::Debug::FormatMessageA(
-                            windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_FROM_SYSTEM |
-                            windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_IGNORE_INSERTS,
-                            core::ptr::null::<void>(),
-                            last_error,
-                            0,
-                            buffer.as_mut_ptr(),
-                            buffer.len() as u32,
-                            core::ptr::null::<*const i8>()
-                        );
                         std::eprintln!(
                             "< Win32 API error > {}:{} {} \n [ {} ] {}",
                             std::file!(), std::line!(), std::stringify!($call), last_error,
-                            core::str::from_utf8(&buffer).unwrap_or("non UTF-8 error messages are not supported")
+                            $crate::os::posix::win32_call::format_error_message(last_error, &mut buffer)
                         );
                     },
                 }
@@ -152,20 +166,10 @@ macro_rules! win32call {
                     $($error => ()),*,
                     _ => {
                         let mut buffer = [0u8; 1024];
-                        windows_sys::Win32::System::Diagnostics::Debug::FormatMessageA(
-                            windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_FROM_SYSTEM |
-                            windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_IGNORE_INSERTS,
-                            core::ptr::null::<void>(),
-                            last_error as _,
-                            0,
-                            buffer.as_mut_ptr(),
-                            buffer.len() as u32,
-                            core::ptr::null::<*const i8>(),
-                        );
                         std::eprintln!(
                             "< Win32 WinSock2 API error > {}:{} {} \n [ {} ] {}",
                             std::file!(), std::line!(), std::stringify!($call), last_error,
-                            core::str::from_utf8(&buffer).unwrap_or("non UTF-8 error messages are not supported")
+                            $crate::os::posix::win32_call::format_error_message(last_error as _, &mut buffer)
                         );
                     },
                 }
@@ -182,4 +186,27 @@ macro_rules! win32call {
             win32call!(winsock $call, ignore NO_ERROR)
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formatted_system_error_has_no_nul_padding() {
+        let mut buffer = [0u8; 1024];
+        let message = format_error_message(ERROR_ACCESS_DENIED, &mut buffer);
+        assert!(!message.is_empty());
+        assert!(!message.contains('\0'));
+        assert!(message.len() < 1024);
+    }
+
+    #[test]
+    fn unavailable_system_error_has_readable_fallback() {
+        let mut buffer = [0u8; 1024];
+        assert_eq!(
+            format_error_message(WIN32_ERROR::MAX, &mut buffer),
+            "Windows error message is unavailable"
+        );
+    }
 }
