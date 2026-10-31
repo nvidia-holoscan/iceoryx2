@@ -13,12 +13,13 @@
 use windows_sys::Win32::{
     Foundation::{
         ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, ERROR_ARENA_TRASHED, ERROR_BAD_COMMAND,
-        ERROR_BAD_LENGTH, ERROR_CURRENT_DIRECTORY, ERROR_DEV_NOT_EXIST, ERROR_FILE_EXISTS,
-        ERROR_FILE_NOT_FOUND, ERROR_FILE_TOO_LARGE, ERROR_HANDLE_DISK_FULL, ERROR_INVALID_ACCESS,
-        ERROR_INVALID_BLOCK, ERROR_INVALID_DATA, ERROR_INVALID_HANDLE, ERROR_LOCK_VIOLATION,
-        ERROR_NOT_ENOUGH_MEMORY, ERROR_NOT_READY, ERROR_OUTOFMEMORY, ERROR_PATH_NOT_FOUND,
-        ERROR_READ_FAULT, ERROR_SECTOR_NOT_FOUND, ERROR_SHARING_BUFFER_EXCEEDED, ERROR_SUCCESS,
-        ERROR_TOO_MANY_OPEN_FILES, ERROR_WRITE_FAULT, ERROR_WRITE_PROTECT, WIN32_ERROR,
+        ERROR_BAD_LENGTH, ERROR_CURRENT_DIRECTORY, ERROR_DEV_NOT_EXIST, ERROR_DIR_NOT_EMPTY,
+        ERROR_FILE_EXISTS, ERROR_FILE_NOT_FOUND, ERROR_FILE_TOO_LARGE, ERROR_HANDLE_DISK_FULL,
+        ERROR_INVALID_ACCESS, ERROR_INVALID_BLOCK, ERROR_INVALID_DATA, ERROR_INVALID_HANDLE,
+        ERROR_LOCK_VIOLATION, ERROR_NOT_ENOUGH_MEMORY, ERROR_NOT_READY, ERROR_OUTOFMEMORY,
+        ERROR_PATH_NOT_FOUND, ERROR_READ_FAULT, ERROR_SECTOR_NOT_FOUND,
+        ERROR_SHARING_BUFFER_EXCEEDED, ERROR_SUCCESS, ERROR_TOO_MANY_OPEN_FILES, ERROR_WRITE_FAULT,
+        ERROR_WRITE_PROTECT, WIN32_ERROR,
     },
     Networking::WinSock::{
         WSA_ERROR, WSA_INVALID_HANDLE, WSA_INVALID_PARAMETER, WSA_IO_INCOMPLETE, WSA_IO_PENDING,
@@ -77,6 +78,7 @@ pub unsafe fn system_error_code_to_errno(value: WIN32_ERROR) {
         ERROR_HANDLE_DISK_FULL => Errno::set(Errno::ENOBUFS),
         ERROR_DEV_NOT_EXIST => Errno::set(Errno::ENODEV),
         ERROR_ALREADY_EXISTS | ERROR_FILE_EXISTS => Errno::set(Errno::EEXIST),
+        ERROR_DIR_NOT_EMPTY => Errno::set(Errno::ENOTEMPTY),
         ERROR_LOCK_VIOLATION => Errno::set(Errno::EAGAIN),
         _ => Errno::set(Errno::EINVAL),
     }
@@ -208,5 +210,36 @@ mod tests {
             format_error_message(WIN32_ERROR::MAX, &mut buffer),
             "Windows error message is unavailable"
         );
+    }
+
+    #[test]
+    fn nonempty_directory_removal_fails_with_enotempty() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "iox2-pal-nonempty-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let child = path.join("owned.file");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&child)
+            .unwrap();
+        let c_path = alloc::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+        Errno::reset();
+        assert_eq!(unsafe { crate::posix::rmdir(c_path.as_ptr().cast()) }, -1);
+        assert_eq!(Errno::get(), Errno::ENOTEMPTY);
+        assert!(path.is_dir());
+        assert!(child.is_file());
+
+        drop(file);
+        std::fs::remove_file(child).unwrap();
+        assert_eq!(unsafe { crate::posix::rmdir(c_path.as_ptr().cast()) }, 0);
+        assert!(!path.exists());
     }
 }
