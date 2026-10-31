@@ -190,4 +190,35 @@ mod tests {
         assert!(!message.is_empty());
         assert!(!message.contains('\0'));
     }
+
+    #[test]
+    fn nonempty_directory_removal_fails_with_enotempty() {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "iox2-pal-nonempty-{}-{timestamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&path).unwrap();
+        let child = path.join("owned.file");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&child)
+            .unwrap();
+        let c_path = alloc::ffi::CString::new(path.to_str().unwrap()).unwrap();
+
+        Errno::reset();
+        assert_eq!(unsafe { crate::posix::rmdir(c_path.as_ptr().cast()) }, -1);
+        assert_eq!(Errno::get(), Errno::ENOTEMPTY);
+        assert!(path.is_dir());
+        assert!(child.is_file());
+
+        drop(file);
+        std::fs::remove_file(child).unwrap();
+        assert_eq!(unsafe { crate::posix::rmdir(c_path.as_ptr().cast()) }, 0);
+        assert!(!path.exists());
+    }
 }
