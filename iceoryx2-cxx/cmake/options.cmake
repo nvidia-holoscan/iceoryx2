@@ -13,14 +13,10 @@
 if(NOT ICEORYX2_CXX_OPTIONS_AND_PARAMS_LISTED)
     set(ICEORYX2_CXX_OPTIONS_AND_PARAMS_LISTED true)
 
-    # NOTE: uncomment the lines below to add C++ binding specific options
-
-    # message(STATUS "[i] iceoryx2-cxx options:")
-    #
-    # add_option(
-    #     NAME HYPNOTOAD
-    #     DESCRIPTION "Enables hypnotoad"
-    #     DEFAULT_VALUE ON
-    # )
+    add_option(
+        NAME BUILD_CXX_SHARED
+        DESCRIPTION "Build the C++ shared library alongside the static library"
+        DEFAULT_VALUE ON
+    )
 
 endif()
