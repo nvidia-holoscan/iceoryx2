@@ -18,8 +18,8 @@ integrations. The upstream project is
 | `main` | Upstream iceoryx2 content |
 | `holoscan-sdk/vX.Y` | Public SDK development and maintenance for one release line |
 | `holoscan-sdk-<sdk-tag>` | Immutable snapshot for a validated public SDK release |
+| `holoscan-sdk/checkpoints/<upstream-ref>-<base-sha>/rN` | Development checkpoints for iceoryx2 patch series |
 | Maintainer topic branches and pull requests | Review of fork maintenance changes |
-| `holoscan-sdk/<lane>/<upstream-ref>-<base-sha>/rN` | Optional reproducible patch-series checkpoints |
 
 Fork maintainers develop directly on GitHub. Maintenance branches may advance
 before an SDK release is qualified; their names do not assert release readiness. Consumer
@@ -27,10 +27,17 @@ build definitions pin a full commit SHA. Release tags identify the exact source
 selected for a validated public SDK release and are never moved or reused.
 Public preview tags retain the SDK's exact preview-tag spelling.
 
-Patch-series checkpoint branches retain their published commits: append changes
-without rewriting history, or use the next `rN` revision when reconstructing a
-series. SDK development can also carry ordered patches above a public upstream
-or fork commit. Remove a patch once it is included in the selected baseline.
+The version in `holoscan-sdk/vX.Y` is the SDK version. Under
+`holoscan-sdk/checkpoints/`, the version is the iceoryx2 upstream ref.
+For example, `holoscan-sdk/checkpoints/v0.10.0-135d09dd8b29/r1` names the
+first revision of a series based on iceoryx2 `v0.10.0`. The 12-character
+SHA identifies the upstream base commit.
+
+> [!WARNING]
+> `rN` checkpoint branches may be deleted or force-pushed at any time.
+> A pinned commit can become unavailable if it is no longer reachable from a
+> branch or tag on the public fork (for example, `holoscan-sdk/vX.Y` or
+> `holoscan-sdk-<sdk-tag>`).
 
 ## Contributions
 
